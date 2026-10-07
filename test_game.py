@@ -18,3 +18,70 @@ def test_player_drawn_at_top_left(capsys):
     rows = capsys.readouterr().out.strip().splitlines()
     assert rows[0].split()[0] == "P"
     assert sum(row.count("P") for row in rows) == 1
+
+
+def test_move_wasd():
+    assert game.move((2, 2), "w") == (2, 1)
+    assert game.move((2, 2), "a") == (1, 2)
+    assert game.move((2, 2), "s") == (2, 3)
+    assert game.move((2, 2), "d") == (3, 2)
+
+
+def test_move_blocked_at_edges():
+    assert game.move((0, 0), "w") == (0, 0)
+    assert game.move((0, 0), "a") == (0, 0)
+    assert game.move((4, 4), "s") == (4, 4)
+    assert game.move((4, 4), "d") == (4, 4)
+
+
+def test_move_ignores_other_input():
+    assert game.move((2, 2), "x") == (2, 2)
+
+
+def test_spawn_item_in_grid_and_not_on_player():
+    for _ in range(200):
+        item = game.spawn_item((2, 2))
+        assert item != (2, 2)
+        assert 0 <= item[0] < game.SIZE and 0 <= item[1] < game.SIZE
+
+
+def test_draw_shows_item(capsys):
+    game.draw((0, 0), (3, 1))
+    rows = capsys.readouterr().out.strip().splitlines()
+    assert rows[1].split()[3] == "*"
+
+
+def run_game(monkeypatch, capsys, items, inputs):
+    items = iter(items)
+    inputs = iter(inputs)
+    monkeypatch.setattr(game, "spawn_item", lambda player: next(items))
+    monkeypatch.setattr(game.os, "system", lambda cmd: 0)
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+    game.main()
+    return capsys.readouterr().out
+
+
+def test_score_increases_on_collect(monkeypatch, capsys):
+    out = run_game(monkeypatch, capsys, [(1, 0), (4, 4)], ["d", "q"])
+    assert "Score: 0" in out
+    assert "Score: 1" in out
+
+
+def test_item_respawns_after_collect(monkeypatch, capsys):
+    out = run_game(monkeypatch, capsys, [(1, 0), (4, 4)], ["d", "q"])
+    last_grid = out.strip().split("Score: 1")[0].strip().splitlines()[-5:]
+    assert last_grid[4].split()[4] == "*"
+
+
+def test_win_at_ten(monkeypatch, capsys):
+    # item alternates between (1,0) and (0,0); player bounces d, a, d, a...
+    items = [(1, 0), (0, 0)] * 5
+    out = run_game(monkeypatch, capsys, items, ["d", "a"] * 5)
+    assert "You win! Final score: 10" in out
+
+
+def test_no_win_before_ten(monkeypatch, capsys):
+    items = [(1, 0), (0, 0)] * 4 + [(4, 4)]
+    out = run_game(monkeypatch, capsys, items, ["d", "a"] * 4 + ["q"])
+    assert "You win" not in out
+    assert "Score: 8" in out
