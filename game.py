@@ -7,12 +7,10 @@ WIN_SCORE = 10
 MOVES = {"w": (0, -1), "a": (-1, 0), "s": (0, 1), "d": (1, 0)}
 
 
-def draw(player, item=None):
+def draw(player, item=None, hazard=None):
+    symbols = {player: "P", hazard: "X", item: "*"}
     for y in range(SIZE):
-        print(" ".join(
-            "P" if (x, y) == player else "*" if (x, y) == item else "."
-            for x in range(SIZE)
-        ))
+        print(" ".join(symbols.get((x, y), ".") for x in range(SIZE)))
     print()
 
 
@@ -24,29 +22,40 @@ def move(player, command):
     return player
 
 
-def spawn_item(player):
-    cells = [(x, y) for x in range(SIZE) for y in range(SIZE) if (x, y) != player]
+def spawn_item(player, hazard=None):
+    cells = [(x, y) for x in range(SIZE) for y in range(SIZE)
+             if (x, y) not in (player, hazard)]
+    return random.choice(cells)
+
+
+def spawn_hazard(player, item):
+    cells = [(x, y) for x in range(SIZE) for y in range(SIZE)
+             if (x, y) not in (player, item)]
     return random.choice(cells)
 
 
 def main():
     player = START
     item = spawn_item(player)
+    hazard = spawn_hazard(player, item)
     score = 0
     while True:
         os.system("cls" if os.name == "nt" else "clear")
-        draw(player, item)
+        draw(player, item, hazard)
         print(f"Score: {score}")
         command = input("> ").strip().lower()
         if command in ("q", "quit"):
             break
         player = move(player, command)
+        if player == hazard:
+            print("Game Over!")
+            break
         if player == item:
             score += 1
             if score >= WIN_SCORE:
                 print(f"You win! Final score: {score}")
                 break
-            item = spawn_item(player)
+            item = spawn_item(player, hazard)
 
 
 if __name__ == "__main__":

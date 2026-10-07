@@ -51,10 +51,11 @@ def test_draw_shows_item(capsys):
     assert rows[1].split()[3] == "*"
 
 
-def run_game(monkeypatch, capsys, items, inputs):
+def run_game(monkeypatch, capsys, items, inputs, hazard=(2, 4)):
     items = iter(items)
     inputs = iter(inputs)
-    monkeypatch.setattr(game, "spawn_item", lambda player: next(items))
+    monkeypatch.setattr(game, "spawn_item", lambda *args: next(items))
+    monkeypatch.setattr(game, "spawn_hazard", lambda *args: hazard)
     monkeypatch.setattr(game.os, "system", lambda cmd: 0)
     monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
     game.main()
@@ -85,3 +86,49 @@ def test_no_win_before_ten(monkeypatch, capsys):
     out = run_game(monkeypatch, capsys, items, ["d", "a"] * 4 + ["q"])
     assert "You win" not in out
     assert "Score: 8" in out
+
+
+def test_hazard_spawns_on_empty_cell():
+    for _ in range(200):
+        hazard = game.spawn_hazard((0, 0), (1, 1))
+        assert hazard not in ((0, 0), (1, 1))
+        assert 0 <= hazard[0] < game.SIZE and 0 <= hazard[1] < game.SIZE
+
+
+def test_item_never_spawns_on_hazard():
+    for _ in range(200):
+        assert game.spawn_item((0, 0), (1, 1)) not in ((0, 0), (1, 1))
+
+
+def test_draw_shows_hazard(capsys):
+    game.draw((0, 0), (3, 1), (2, 2))
+    rows = capsys.readouterr().out.strip().splitlines()
+    assert rows[2].split()[2] == "X"
+
+
+def test_hazard_ends_game(monkeypatch, capsys):
+    # hazard at (1,0): the first move ends the game, so the 2nd input is never read
+    out = run_game(monkeypatch, capsys, [(4, 4)], ["d", "d"], hazard=(1, 0))
+    assert "Game Over!" in out
+    assert out.count("Score:") == 1
+
+
+def test_hazard_not_triggered_elsewhere(monkeypatch, capsys):
+    out = run_game(monkeypatch, capsys, [(4, 4)], ["s", "d", "q"], hazard=(0, 4))
+    assert "Game Over!" not in out
+    assert out.count("Score:") == 3
+
+
+def test_hazard_stays_in_place(monkeypatch, capsys):
+    out = run_game(monkeypatch, capsys, [(4, 4)], ["d", "s", "q"], hazard=(3, 3))
+    assert out.count("X") == 3
+
+
+def test_hazard_game_over_stops_loop(monkeypatch, capsys):
+    inputs = iter(["d", "q"])
+    monkeypatch.setattr(game, "spawn_item", lambda *args: (4, 4))
+    monkeypatch.setattr(game, "spawn_hazard", lambda *args: (1, 0))
+    monkeypatch.setattr(game.os, "system", lambda cmd: 0)
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+    game.main()  # returns instead of looping
+    assert next(inputs) == "q"  # the second input was never consumed
