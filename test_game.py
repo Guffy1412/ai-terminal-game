@@ -16,8 +16,8 @@ def test_player_starts_at_origin():
 def test_player_drawn_at_top_left(capsys):
     game.draw(game.START)
     rows = capsys.readouterr().out.strip().splitlines()
-    assert rows[0].split()[0] == "P"
-    assert sum(row.count("P") for row in rows) == 1
+    assert rows[0].split()[0] == game.PLAYER
+    assert sum(row.count(game.PLAYER) for row in rows) == 1
 
 
 def test_move_wasd():
@@ -48,12 +48,12 @@ def test_spawn_item_in_grid_and_not_on_player():
 def test_draw_shows_item(capsys):
     game.draw((0, 0), (3, 1))
     rows = capsys.readouterr().out.strip().splitlines()
-    assert rows[1].split()[3] == "*"
+    assert rows[1].split()[3] == game.COLLECTIBLE
 
 
 def run_game(monkeypatch, capsys, items, inputs, hazard=(2, 4)):
     items = iter(items)
-    inputs = iter(inputs)
+    inputs = iter([""] + list(inputs))  # "" answers the intro screen
     monkeypatch.setattr(game, "spawn_item", lambda *args: next(items))
     monkeypatch.setattr(game, "spawn_hazard", lambda *args: hazard)
     monkeypatch.setattr(game.os, "system", lambda cmd: 0)
@@ -76,14 +76,14 @@ def test_score_increases_on_collect(monkeypatch, capsys):
 def test_item_respawns_after_collect(monkeypatch, capsys):
     out = run_game(monkeypatch, capsys, [(1, 0), (4, 4)], ["d", "q"])
     last_grid = out.strip().split("Score: 1")[0].strip().splitlines()[-5:]
-    assert last_grid[4].split()[4] == "*"
+    assert last_grid[4].split()[4] == game.COLLECTIBLE
 
 
 def test_win_at_ten(monkeypatch, capsys):
     # item alternates between (1,0) and (0,0); player bounces d, a, d, a...
     items = [(1, 0), (0, 0)] * 5
     out = run_game(monkeypatch, capsys, items, ["d", "a"] * 5 + ["n"])
-    assert "You win! Final score: 10" in out
+    assert game.WIN_MESSAGE in out and "Final score: 10" in out
 
 
 def test_no_win_before_ten(monkeypatch, capsys):
@@ -108,29 +108,29 @@ def test_item_never_spawns_on_hazard():
 def test_draw_shows_hazard(capsys):
     game.draw((0, 0), (3, 1), (2, 2))
     rows = capsys.readouterr().out.strip().splitlines()
-    assert rows[2].split()[2] == "X"
+    assert rows[2].split()[2] == game.HAZARD
 
 
 def test_hazard_ends_game(monkeypatch, capsys):
     # hazard at (1,0): the first move ends the game; "n" declines a replay
     out = run_game(monkeypatch, capsys, [(4, 4)], ["d", "n", "d"], hazard=(1, 0))
-    assert "Game Over!" in out
+    assert game.LOSE_MESSAGE in out
     assert out.count("Score:") == 1
 
 
 def test_hazard_not_triggered_elsewhere(monkeypatch, capsys):
     out = run_game(monkeypatch, capsys, [(4, 4)], ["s", "d", "q"], hazard=(0, 4))
-    assert "Game Over!" not in out
+    assert game.LOSE_MESSAGE not in out
     assert out.count("Score:") == 3
 
 
 def test_hazard_stays_in_place(monkeypatch, capsys):
     out = run_game(monkeypatch, capsys, [(4, 4)], ["d", "s", "q"], hazard=(3, 3))
-    assert out.count("X") == 3
+    assert out.count(game.HAZARD) == 3
 
 
 def test_hazard_game_over_stops_loop(monkeypatch, capsys):
-    inputs = iter(["d", "n", "extra"])
+    inputs = iter(["", "d", "n", "extra"])
     monkeypatch.setattr(game, "spawn_item", lambda *args: (4, 4))
     monkeypatch.setattr(game, "spawn_hazard", lambda *args: (1, 0))
     monkeypatch.setattr(game.os, "system", lambda cmd: 0)
@@ -163,10 +163,10 @@ def test_play_again_y_resets_game(monkeypatch, capsys):
     frames = out.split("Score: ")
     assert frames[1].startswith("0") and frames[2].startswith("1")
     assert frames[-1].startswith("0")  # score reset in the new game
-    assert out.count("Game Over!") == 1
+    assert out.count(game.LOSE_MESSAGE) == 1
     # new game starts with the player back at (0,0)
     last_grid = out.rsplit("Score: ", 1)[0].strip().splitlines()[-5:]
-    assert last_grid[0].endswith("P X . . .")  # follows the unterminated prompt line
+    assert last_grid[0].endswith(f"{game.PLAYER} {game.HAZARD} " + " ".join([game.EMPTY] * 3))  # follows the unterminated prompt line
 
 
 def test_play_again_reprompts_on_invalid(monkeypatch, capsys):
@@ -209,4 +209,48 @@ def test_multiple_replays(monkeypatch, capsys):
     # lose, replay, lose, replay, lose, decline
     out = run_game(monkeypatch, capsys, [(4, 4)] * 3,
                    ["d", "y", "d", "y", "d", "n"], hazard=(1, 0))
-    assert out.count("Game Over!") == 3
+    assert out.count(game.LOSE_MESSAGE) == 3
+
+
+def test_intro_shows_title_and_story(monkeypatch, capsys):
+    out = run_game(monkeypatch, capsys, [(4, 4)], ["q"])
+    assert game.TITLE in out
+    assert game.STORY in out
+    assert "Press Enter to begin" in out
+
+
+def test_intro_shown_once_across_replays(monkeypatch, capsys):
+    out = run_game(monkeypatch, capsys, [(4, 4)] * 2, ["d", "y", "d", "n"], hazard=(1, 0))
+    assert out.count(game.TITLE) == 1
+
+
+def test_emoji_symbols_are_distinct():
+    symbols = {game.PLAYER, game.COLLECTIBLE, game.HAZARD, game.EMPTY}
+    assert len(symbols) == 4
+
+
+def test_theme_text_is_set():
+    for text in (game.TITLE, game.STORY, game.WIN_MESSAGE, game.LOSE_MESSAGE):
+        assert isinstance(text, str) and text.strip()
+
+
+def test_full_grid_uses_theme_symbols(capsys):
+    game.draw((0, 0), (4, 4), (2, 2))
+    rows = [row.split() for row in capsys.readouterr().out.strip().splitlines()]
+    cells = [cell for row in rows for cell in row]
+    assert cells.count(game.PLAYER) == 1
+    assert cells.count(game.COLLECTIBLE) == 1
+    assert cells.count(game.HAZARD) == 1
+    assert cells.count(game.EMPTY) == 22
+    assert rows[0][0] == game.PLAYER and rows[4][4] == game.COLLECTIBLE and rows[2][2] == game.HAZARD
+
+
+def test_win_message_includes_score(monkeypatch, capsys):
+    out = run_game(monkeypatch, capsys, [(1, 0), (0, 0)] * 5, ["d", "a"] * 5 + ["n"])
+    assert f"{game.WIN_MESSAGE} Final score: 10" in out
+
+
+def test_score_line_uses_theme_grid_each_turn(monkeypatch, capsys):
+    out = run_game(monkeypatch, capsys, [(4, 4)], ["d", "s", "q"])
+    assert out.count("Score: 0") == 3
+    assert out.count(game.PLAYER) == 3

@@ -1,5 +1,17 @@
 import os
 import random
+import sys
+
+TITLE = "Ember Hollow"
+STORY = ("A storm shook your dragon's nest and scattered the eggs across the "
+         "volcano's crater. "
+         "Gather all 10 before the lava claims you!")
+PLAYER = "🐉"
+COLLECTIBLE = "🥚"
+HAZARD = "🌋"
+EMPTY = "⬛"
+WIN_MESSAGE = "The clutch is safe! Every egg is back in the nest."
+LOSE_MESSAGE = "Game Over! The volcano erupted and swallowed you whole."
 
 SIZE = 5
 START = (0, 0)
@@ -8,9 +20,9 @@ MOVES = {"w": (0, -1), "a": (-1, 0), "s": (0, 1), "d": (1, 0)}
 
 
 def draw(player, item=None, hazard=None):
-    symbols = {player: "P", hazard: "X", item: "*"}
+    symbols = {player: PLAYER, hazard: HAZARD, item: COLLECTIBLE}
     for y in range(SIZE):
-        print(" ".join(symbols.get((x, y), ".") for x in range(SIZE)))
+        print(" ".join(symbols.get((x, y), EMPTY) for x in range(SIZE)))
     print()
 
 
@@ -49,12 +61,12 @@ def play():
             return "quit"
         player = move(player, command)
         if player == hazard:
-            print("Game Over!")
+            print(LOSE_MESSAGE)
             return "lose"
         if player == item:
             score += 1
             if score >= WIN_SCORE:
-                print(f"You win! Final score: {score}")
+                print(f"{WIN_MESSAGE} Final score: {score}")
                 return "win"
             item = spawn_item(player, hazard)
 
@@ -66,10 +78,20 @@ def play_again():
             return answer == "y"
 
 
+def intro():
+    print(f"=== {TITLE} ===")
+    print()
+    print(STORY)
+    print()
+    input("Press Enter to begin...")
+
+
 def main():
+    intro()
     while play() != "quit" and play_again():
         pass
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")  # emoji on Windows consoles
     main()
