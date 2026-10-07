@@ -34,7 +34,8 @@ def spawn_hazard(player, item):
     return random.choice(cells)
 
 
-def main():
+def play():
+    """Play one game. Returns "win", "lose" or "quit"."""
     player = START
     item = spawn_item(player)
     hazard = spawn_hazard(player, item)
@@ -45,17 +46,29 @@ def main():
         print(f"Score: {score}")
         command = input("> ").strip().lower()
         if command in ("q", "quit"):
-            break
+            return "quit"
         player = move(player, command)
         if player == hazard:
             print("Game Over!")
-            break
+            return "lose"
         if player == item:
             score += 1
             if score >= WIN_SCORE:
                 print(f"You win! Final score: {score}")
-                break
+                return "win"
             item = spawn_item(player, hazard)
+
+
+def play_again():
+    while True:
+        answer = input("Play again? (y/n) ").strip().lower()
+        if answer in ("y", "n"):
+            return answer == "y"
+
+
+def main():
+    while play() != "quit" and play_again():
+        pass
 
 
 if __name__ == "__main__":

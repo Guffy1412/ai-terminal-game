@@ -57,7 +57,12 @@ def run_game(monkeypatch, capsys, items, inputs, hazard=(2, 4)):
     monkeypatch.setattr(game, "spawn_item", lambda *args: next(items))
     monkeypatch.setattr(game, "spawn_hazard", lambda *args: hazard)
     monkeypatch.setattr(game.os, "system", lambda cmd: 0)
-    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+    def fake_input(prompt=""):
+        print(prompt, end="")  # real input() writes its prompt to stdout
+        return next(inputs)
+
+    monkeypatch.setattr("builtins.input", fake_input)
     game.main()
     return capsys.readouterr().out
 
@@ -77,7 +82,7 @@ def test_item_respawns_after_collect(monkeypatch, capsys):
 def test_win_at_ten(monkeypatch, capsys):
     # item alternates between (1,0) and (0,0); player bounces d, a, d, a...
     items = [(1, 0), (0, 0)] * 5
-    out = run_game(monkeypatch, capsys, items, ["d", "a"] * 5)
+    out = run_game(monkeypatch, capsys, items, ["d", "a"] * 5 + ["n"])
     assert "You win! Final score: 10" in out
 
 
@@ -107,8 +112,8 @@ def test_draw_shows_hazard(capsys):
 
 
 def test_hazard_ends_game(monkeypatch, capsys):
-    # hazard at (1,0): the first move ends the game, so the 2nd input is never read
-    out = run_game(monkeypatch, capsys, [(4, 4)], ["d", "d"], hazard=(1, 0))
+    # hazard at (1,0): the first move ends the game; "n" declines a replay
+    out = run_game(monkeypatch, capsys, [(4, 4)], ["d", "n", "d"], hazard=(1, 0))
     assert "Game Over!" in out
     assert out.count("Score:") == 1
 
@@ -125,10 +130,83 @@ def test_hazard_stays_in_place(monkeypatch, capsys):
 
 
 def test_hazard_game_over_stops_loop(monkeypatch, capsys):
-    inputs = iter(["d", "q"])
+    inputs = iter(["d", "n", "extra"])
     monkeypatch.setattr(game, "spawn_item", lambda *args: (4, 4))
     monkeypatch.setattr(game, "spawn_hazard", lambda *args: (1, 0))
     monkeypatch.setattr(game.os, "system", lambda cmd: 0)
     monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
     game.main()  # returns instead of looping
-    assert next(inputs) == "q"  # the second input was never consumed
+    assert next(inputs) == "extra"  # nothing was read after answering n
+
+
+def test_play_again_prompt_after_win(monkeypatch, capsys):
+    items = [(1, 0), (0, 0)] * 5
+    out = run_game(monkeypatch, capsys, items, ["d", "a"] * 5 + ["n"])
+    assert "Play again? (y/n)" in out
+
+
+def test_play_again_prompt_after_lose(monkeypatch, capsys):
+    out = run_game(monkeypatch, capsys, [(4, 4)], ["d", "n"], hazard=(1, 0))
+    assert "Play again? (y/n)" in out
+
+
+def test_no_prompt_when_quitting(monkeypatch, capsys):
+    out = run_game(monkeypatch, capsys, [(4, 4)], ["q"])
+    assert "Play again?" not in out
+
+
+def test_play_again_y_resets_game(monkeypatch, capsys):
+    # lose at (1,0) with a score of 1, say y, then quit the fresh game
+    items = [(0, 1), (4, 4), (4, 4)]
+    inputs = ["s", "w", "d", "y", "q"]
+    out = run_game(monkeypatch, capsys, items, inputs, hazard=(1, 0))
+    frames = out.split("Score: ")
+    assert frames[1].startswith("0") and frames[2].startswith("1")
+    assert frames[-1].startswith("0")  # score reset in the new game
+    assert out.count("Game Over!") == 1
+    # new game starts with the player back at (0,0)
+    last_grid = out.rsplit("Score: ", 1)[0].strip().splitlines()[-5:]
+    assert last_grid[0].endswith("P X . . .")  # follows the unterminated prompt line
+
+
+def test_play_again_reprompts_on_invalid(monkeypatch, capsys):
+    out = run_game(monkeypatch, capsys, [(4, 4)], ["d", "maybe", "n"], hazard=(1, 0))
+    assert out.count("Play again?") == 2  # asked again after the invalid answer
+
+
+def patch_play(monkeypatch, items, inputs, hazard=(2, 4)):
+    items, inputs = iter(items), iter(inputs)
+    monkeypatch.setattr(game, "spawn_item", lambda *args: next(items))
+    monkeypatch.setattr(game, "spawn_hazard", lambda *args: hazard)
+    monkeypatch.setattr(game.os, "system", lambda cmd: 0)
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+
+def test_play_returns_win(monkeypatch):
+    patch_play(monkeypatch, [(1, 0), (0, 0)] * 5, ["d", "a"] * 5)
+    assert game.play() == "win"
+
+
+def test_play_returns_lose(monkeypatch):
+    patch_play(monkeypatch, [(4, 4)], ["d"], hazard=(1, 0))
+    assert game.play() == "lose"
+
+
+def test_play_returns_quit(monkeypatch):
+    patch_play(monkeypatch, [(4, 4)], ["q"])
+    assert game.play() == "quit"
+
+
+def test_play_again_answers(monkeypatch):
+    answers = iter(["maybe", "", "Y"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    assert game.play_again() is True
+    answers = iter(["N"])
+    assert game.play_again() is False
+
+
+def test_multiple_replays(monkeypatch, capsys):
+    # lose, replay, lose, replay, lose, decline
+    out = run_game(monkeypatch, capsys, [(4, 4)] * 3,
+                   ["d", "y", "d", "y", "d", "n"], hazard=(1, 0))
+    assert out.count("Game Over!") == 3
